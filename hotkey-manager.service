@@ -1,0 +1,14 @@
+[Unit]
+Description=Hotkey Manager - Ubuntu 快捷键管理工具
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /home/lijiang/workspace/hotkey-manager/start.sh
+Restart=on-failure
+RestartSec=5
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=
+
+[Install]
+WantedBy=default.target

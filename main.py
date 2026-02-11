@@ -8,6 +8,38 @@ Hotkey Manager - Ubuntu 快捷键管理工具
 4. 快捷键搜索
 """
 
+import os
+import sys
+
+# Display 兼容层 - 处理本地/RDP 场景
+def setup_display():
+    """设置可用的 Display，处理各种场景"""
+    # 检查是否有可用的 display
+    if os.environ.get('DISPLAY'):
+        return True
+    
+    # 尝试查找 X11 socket（RDP 转发场景）
+    import glob
+    x11_sockets = glob.glob('/tmp/.X11-unix/X*')
+    if x11_sockets:
+        # 取最新的 socket
+        socket = sorted(x11_sockets)[-1]
+        display_num = socket.split('X')[-1]
+        os.environ['DISPLAY'] = f":{display_num}"
+        print(f"🔧 自动配置 RDP Display: {os.environ['DISPLAY']}")
+        return True
+    
+    # 尝试 WAYLAND
+    if os.environ.get('WAYLAND_DISPLAY'):
+        return True
+    
+    return False
+
+# 启动时自动配置
+if not setup_display():
+    print("⚠️ 未检测到显示环境，程序将以无头模式运行")
+
+
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 import json
@@ -605,3 +637,100 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ============================================================
+# Display 兼容层（处理本地/RDP 场景）
+# ============================================================
+
+def setup_display():
+    """设置可用的 Display"""
+    import os
+    
+    # 1. 尝试从环境变量读取
+    displays = []
+    
+    # 检查常见的环境变量
+    display_vars = ['DISPLAY', 'WAYLAND_DISPLAY']
+    
+    for var in display_vars:
+        val = os.environ.get(var, '')
+        if val:
+            displays.append((var, val))
+    
+    # 2. 如果 RDP 转发，可能在 /tmp/.X11-unix/ 有 socket
+    import glob
+    x11_sockets = glob.glob('/tmp/.X11-unix/X*')
+    if x11_sockets:
+        for socket in x11_sockets:
+            display_num = socket.split('X')[-1]
+            displays.append(('X11-unix', f":{display_num}"))
+    
+    # 3. 尝试 XDG_SESSION_TYPE
+    session_type = os.environ.get('XDG_SESSION_TYPE', '')
+    displays.append(('XDG', session_type))
+    
+    return displays
+
+
+def get_best_display():
+    """获取最佳可用的 Display"""
+    import os
+    
+    # 方案1：本地桌面环境
+    if os.environ.get('DISPLAY'):
+        try:
+            # 尝试创建一个简单的 tk 窗口测试
+            test_root = tk.Tk()
+            test_root.withdraw()  # 隐藏
+            test_root.destroy()
+            return os.environ['DISPLAY']
+        except:
+            pass
+    
+    # 方案2：WAYLAND
+    if os.environ.get('WAYLAND_DISPLAY'):
+        try:
+            test_root = tk.Tk()
+            test_root.withdraw()
+            test_root.destroy()
+            return os.environ['WAYLAND_DISPLAY']
+        except:
+            pass
+    
+    # 方案3：RDP 转发（通常在 /tmp/.X11-unix/）
+    import glob
+    x11_sockets = glob.glob('/tmp/.X11-unix/X*')
+    if x11_sockets:
+        # 取最新的 socket
+        socket = sorted(x11_sockets)[-1]
+        display_num = socket.split('X')[-1]
+        os.environ['DISPLAY'] = f":{display_num}"
+        return f":{display_num}"
+    
+    # 方案4：使用 xdpyinfo 探测
+    import subprocess
+    try:
+        result = subprocess.run(['xdpyinfo'], capture_output=True, timeout=5)
+        if result.returncode == 0:
+            for line in result.stdout.decode().split('\n'):
+                if 'display name' in line.lower():
+                    display = line.split(':')[-1].strip()
+                    os.environ['DISPLAY'] = display
+                    return display
+    except:
+        pass
+    
+    # 方案5：返回默认 :0
+    return ':0'
+
+
+# 在程序启动时调用
+if __name__ == '__main__':
+    # 如果没有 display，尝试获取
+    import os
+    if not os.environ.get('DISPLAY'):
+        print("未检测到显示环境，尝试自动配置...")
+        display = get_best_display()
+        print(f"使用 Display: {display}")
+        os.environ['DISPLAY'] = display
