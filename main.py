@@ -56,6 +56,157 @@ import sys
 CONFIG_FILE = os.path.expanduser("~/.config/hotkey_manager/data.json")
 HOTKEY_FILE = os.path.expanduser("~/.config/hotkey_manager/hotkeys.json")
 
+
+class HotkeySearchPopup(tk.Toplevel):
+    """uTools 风格的快捷键搜索弹出框"""
+    
+    def __init__(self, parent, hotkeys, current_window, on_execute):
+        super().__init__(parent)
+        
+        self.hotkeys = hotkeys
+        self.current_window = current_window
+        self.on_execute = on_execute
+        
+        # 窗口属性
+        self.title("🔍 快捷键搜索")
+        self.geometry("500x400")
+        self.attributes('-topmost', True)
+        self.configure(bg='#2d2d2d')
+        self.overrideredirect(True)  # 无边框
+        
+        # 过滤快捷键
+        self.filtered = self.filter_by_window(hotkeys, current_window)
+        
+        self.setup_ui()
+        self.bind_shortcuts()
+        
+        self.search_entry.focus_set()
+        self.center_window()
+    
+    def filter_by_window(self, hotkeys, current_window):
+        """根据当前窗口过滤"""
+        if not current_window or current_window == "Unknown":
+            return hotkeys
+        
+        result = []
+        for hk in hotkeys:
+            window = hk.get('window', '').strip()
+            if not window:  # 全局快捷键
+                result.append(hk)
+            elif current_window.lower().startswith(window.lower()):
+                result.append(hk)
+        return result
+    
+    def setup_ui(self):
+        """设置 UI"""
+        main = tk.Frame(self, bg='#2d2d2d')
+        main.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # 搜索框
+        self.search_var = tk.StringVar()
+        self.search_var.trace('w', self.on_search)
+        
+        sf = tk.Frame(main, bg='#2d2d2d')
+        sf.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(sf, text="🔍", bg='#2d2d2d', fg='white', font=('Arial', 14)).pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.search_entry = tk.Entry(sf, textvariable=self.search_var,
+                                     bg='#404040', fg='white', font=('Arial', 14),
+                                     bd=0, highlightthickness=0)
+        self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.search_entry.bind('<Down>', self.move_down)
+        self.search_entry.bind('<Up>', self.move_up)
+        self.search_entry.bind('<Return>', self.select_current)
+        self.search_entry.bind('<Escape>', self.close)
+        
+        # 列表
+        self.listbox = tk.Listbox(main, bg='#404040', fg='white',
+                                  font=('Arial', 12), bd=0, highlightthickness=0,
+                                  selectbackground='#0078d7', selectforeground='white')
+        self.listbox.pack(fill=tk.BOTH, expand=True)
+        self.listbox.bind('<<ListboxSelect>>', self.on_select)
+        
+        # 状态栏
+        self.status = tk.Label(main, text=f"窗口: {self.current_window} | 共 {len(self.filtered)} 个",
+                               bg='#2d2d2d', fg='#888888', font=('Arial', 10))
+        self.status.pack(fill=tk.X, pady=(10, 0))
+        
+        self.refresh_list()
+    
+    def refresh_list(self):
+        """刷新列表"""
+        self.listbox.delete(0, tk.END)
+        for hk in self.filtered:
+            window = hk.get('window', '').strip()
+            hotkey = hk.get('hotkey', '').upper()
+            desc = hk.get('description', '')
+            text = f"[{window or '全局'}] {hotkey} - {desc}" if window else f"🌐 {hotkey} - {desc}"
+            self.listbox.insert(tk.END, text)
+        
+        if self.filtered:
+            self.listbox.selection_set(0)
+    
+    def on_search(self, *args):
+        """搜索"""
+        keyword = self.search_var.get().lower()
+        if not keyword:
+            self.filtered = [h for h in self.hotkeys 
+                            if not h.get('window') or self.current_window.startswith(h.get('window', ''))]
+        else:
+            self.filtered = [h for h in self.hotkeys 
+                            if (keyword in hk.get('hotkey', '').lower() or
+                                keyword in hk.get('description', '').lower()
+                                for hk in [h])]
+            # 简化搜索逻辑
+            self.filtered = []
+            for hk in self.hotkeys:
+                if (keyword in hk.get('hotkey', '').lower() or
+                    keyword in hk.get('description', '').lower()):
+                    self.filtered.append(hk)
+        
+        self.refresh_list()
+    
+    def move_down(self, e):
+        cur = self.listbox.curselection()
+        if cur and cur[0] < len(self.filtered) - 1:
+            self.listbox.selection_clear(cur)
+            self.listbox.selection_set(cur[0] + 1)
+            self.listbox.see(cur[0] + 1)
+        return 'break'
+    
+    def move_up(self, e):
+        cur = self.listbox.curselection()
+        if cur and cur[0] > 0:
+            self.listbox.selection_clear(cur)
+            self.listbox.selection_set(cur[0] - 1)
+            self.listbox.see(cur[0] - 1)
+        return 'break'
+    
+    def select_current(self, e):
+        cur = self.listbox.curselection()
+        if cur:
+            self.execute_item(cur[0])
+        return 'break'
+    
+    def on_select(self, e):
+        self.after(50, lambda: self.execute_item(self.listbox.curselection()[0]) if self.listbox.curselection() else None)
+    
+    def execute_item(self, index):
+        if 0 <= index < len(self.filtered):
+            self.on_execute(self.filtered[index])
+            self.close()
+    
+    def center_window(self):
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() - self.winfo_width()) // 2
+        y = (self.winfo_screenheight() - self.winfo_height()) // 2
+        self.geometry(f'+{x}+{y}')
+    
+    def close(self, e=None):
+        self.destroy()
+
+
 class HotkeyManager:
     def __init__(self, root):
         self.root = root
@@ -75,6 +226,9 @@ class HotkeyManager:
         self.setup_ui()
         self.setup_hotkeys()
         self.start_window_monitor()
+        
+        # 弹出搜索窗口
+        self.popup = None
         
         # 注册全局快捷键
         self.register_global_hotkeys()
@@ -128,7 +282,7 @@ class HotkeyManager:
         
         # 状态栏
         self.status_var = tk.StringVar()
-        self.status_var.set("就绪 | 快捷键: Ctrl+Alt+H 显示主窗口")
+        self.status_var.set("就绪 | Alt+R 搜索快捷键")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
         
@@ -139,7 +293,7 @@ class HotkeyManager:
     
     def setup_hotkeys(self):
         """注册系统级快捷键"""
-        keyboard.add_hotkey('ctrl+alt+h', self.toggle_window)
+        keyboard.add_hotkey('alt+r', self.show_search_popup)
         keyboard.add_hotkey('ctrl+alt+s', self.save_hotkeys)
     
     def start_window_monitor(self):
@@ -303,6 +457,20 @@ class HotkeyManager:
             except Exception as e:
                 messagebox.showerror("错误", f"执行失败: {e}")
     
+    
+    def show_search_popup(self):
+        """显示快捷键搜索弹出框"""
+        if self.popup and self.popup.winfo_exists():
+            self.popup.lift()
+            return
+        
+        self.popup = HotkeySearchPopup(
+            self.root,
+            self.hotkeys,
+            self.current_window,
+            self.execute_hotkey
+        )
+
     def register_global_hotkeys(self):
         """注册全局快捷键"""
         # 先清除所有已注册的
@@ -742,3 +910,254 @@ if __name__ == '__main__':
         display = get_best_display()
         print(f"使用 Display: {display}")
         os.environ['DISPLAY'] = display
+
+
+# ============================================================
+# 快捷键搜索弹出框（uTools 风格）
+# ============================================================
+
+class HotkeyPopup(tk.Toplevel):
+    """uTools 风格的快捷键搜索弹出框"""
+    
+    def __init__(self, parent, hotkeys, current_window, on_select):
+        super().__init__(parent)
+        
+        self.hotkeys = hotkeys
+        self.current_window = current_window
+        self.on_select = on_select
+        self.selected_index = 0
+        
+        # 设置窗口属性
+        self.title("🔍 快捷键搜索")
+        self.geometry("500x400")
+        self.attributes('-topmost', True)
+        self.configure(bg='#2d2d2d')
+        
+        # 无边框样式
+        self.overrideredirect(True)
+        
+        # 根据当前窗口过滤快捷键
+        self.filtered_hotkeys = self.filter_by_window(hotkeys, current_window)
+        
+        self.setup_ui()
+        self.bind_shortcuts()
+        
+        # 聚焦搜索框
+        self.search_entry.focus_set()
+        
+        # 窗口居中
+        self.center_window()
+    
+    def filter_by_window(self, hotkeys, current_window):
+        """根据当前窗口过滤快捷键"""
+        if not current_window or current_window == "Unknown":
+            return hotkeys
+        
+        result = []
+        for hk in hotkeys:
+            window = hk.get('window', '').strip()
+            if not window:  # 全局快捷键
+                result.append(hk)
+            elif current_window.lower().startswith(window.lower()):
+                result.append(hk)
+        return result
+    
+    def setup_ui(self):
+        """设置 UI"""
+        # 主容器
+        main_frame = tk.Frame(self, bg='#2d2d2d')
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # 搜索框
+        self.search_var = tk.StringVar()
+        self.search_var.trace('w', self.on_search)
+        
+        search_frame = tk.Frame(main_frame, bg='#2d2d2d')
+        search_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        search_icon = tk.Label(search_frame, text="🔍", bg='#2d2d2d', fg='white', font=('Arial', 14))
+        search_icon.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.search_entry = tk.Entry(search_frame, textvariable=self.search_var,
+                                     bg='#404040', fg='white', font=('Arial', 14),
+                                     bd=0, highlightthickness=0)
+        self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.search_entry.bind('<Down>', self.move_down)
+        self.search_entry.bind('<Up>', self.move_up)
+        self.search_entry.bind('<Return>', self.select_current)
+        self.search_entry.bind('<Escape>', self.close)
+        
+        # 列表
+        self.listbox = tk.Listbox(main_frame, bg='#404040', fg='white',
+                                  font=('Arial', 12), bd=0, highlightthickness=0,
+                                  selectbackground='#0078d7', selectforeground='white')
+        self.listbox.pack(fill=tk.BOTH, expand=True)
+        self.listbox.bind('<<ListboxSelect>>', self.on_select)
+        self.listbox.bind('<Double-1>', self.on_double_click)
+        
+        # 状态栏
+        self.status_label = tk.Label(main_frame, text=f"当前: {self.current_window} | 共 {len(self.filtered_hotkeys)} 个",
+                                     bg='#2d2d2d', fg='#888888', font=('Arial', 10))
+        self.status_label.pack(fill=tk.X, pady=(10, 0))
+        
+        # 填充列表
+        self.refresh_list()
+    
+    def bind_shortcuts(self):
+        """绑定快捷键"""
+        self.bind('<Alt-r>', lambda e: None)  # 阻止默认
+        self.bind('<Control-f>', lambda e: self.search_entry.focus_set())
+    
+    def on_search(self, *args):
+        """搜索"""
+        keyword = self.search_var.get().lower()
+        
+        if not keyword:
+            self.filtered_hotkeys = [h for h in self.hotkeys 
+                                     if not h.get('window') or h.get('window').strip() == ''
+                                     or self.current_window.startswith(h.get('window', ''))]
+        else:
+            self.filtered_hotkeys = []
+            for hk in self.hotkeys:
+                if (keyword in hk.get('hotkey', '').lower() or
+                    keyword in hk.get('description', '').lower() or
+                    keyword in hk.get('window', '').lower()):
+                    self.filtered_hotkeys.append(hk)
+        
+        self.refresh_list()
+    
+    def refresh_list(self):
+        """刷新列表"""
+        self.listbox.delete(0, tk.END)
+        
+        for hk in self.filtered_hotkeys:
+            window = hk.get('window', '').strip()
+            hotkey = hk.get('hotkey', '').upper()
+            desc = hk.get('description', '')
+            
+            if window:
+                text = f"[{window}] {hotkey} - {desc}"
+            else:
+                text = f"🌐 {hotkey} - {desc}"
+            
+            self.listbox.insert(tk.END, text)
+        
+        self.status_label.config(text=f"当前: {self.current_window} | 匹配: {len(self.filtered_hotkeys)} 个")
+        
+        if self.filtered_hotkeys:
+            self.listbox.selection_set(0)
+    
+    def move_down(self, event):
+        """向下移动"""
+        current = self.listbox.curselection()
+        if current and current[0] < len(self.filtered_hotkeys) - 1:
+            self.listbox.selection_clear(current)
+            self.listbox.selection_set(current[0] + 1)
+            self.listbox.see(current[0] + 1)
+        return 'break'
+    
+    def move_up(self, event):
+        """向上移动"""
+        current = self.listbox.curselection()
+        if current and current[0] > 0:
+            self.listbox.selection_clear(current)
+            self.listbox.selection_set(current[0] - 1)
+            self.listbox.see(current[0] - 1)
+        return 'break'
+    
+    def select_current(self, event):
+        """选择当前项"""
+        current = self.listbox.curselection()
+        if current:
+            self.execute_selected(current[0])
+        return 'break'
+    
+    def on_select(self, event):
+        """选择事件"""
+        # 延迟执行，避免点击时立即触发
+        self.after(100, lambda: self.execute_selected(self.listbox.curselection()[0]) if self.listbox.curselection() else None)
+    
+    def on_double_click(self, event):
+        """双击选择"""
+        current = self.listbox.curselection()
+        if current:
+            self.execute_selected(current[0])
+    
+    def execute_selected(self, index):
+        """执行选中的快捷键"""
+        if 0 <= index < len(self.filtered_hotkeys):
+            hk = self.filtered_hotkeys[index]
+            self.on_select(hk)
+            self.close()
+    
+    def center_window(self):
+        """窗口居中"""
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() - self.winfo_width()) // 2
+        y = (self.winfo_screenheight() - self.winfo_height()) // 2
+        self.geometry(f'+{x}+{y}')
+    
+    def close(self, event=None):
+        """关闭"""
+        self.destroy()
+
+
+class HotkeyManagerWithPopup(HotkeyManager):
+    """带弹出搜索功能的 Hotkey Manager"""
+    
+    def __init__(self, root):
+        super().__init__(root)
+        self.popup = None
+        self.setup_global_hotkey()
+    
+    def setup_global_hotkey(self):
+        """设置全局 Alt+R 快捷键"""
+        import keyboard
+        
+        def show_popup():
+            if self.popup and self.popup.winfo_exists():
+                self.popup.lift()
+                self.popup.focus_force()
+            else:
+                self.show_search_popup()
+        
+        # 尝试注册 Alt+R
+        try:
+            keyboard.add_hotkey('alt+r', show_popup)
+            self.status_var.set("💡 按 Alt+R 搜索快捷键")
+        except:
+            self.status_var.set("⚠️  Alt+R 注册失败，需要 root 权限")
+    
+    def show_search_popup(self):
+        """显示搜索弹出框"""
+        if self.popup and self.popup.winfo_exists():
+            return
+        
+        self.popup = HotkeyPopup(
+            self.root,
+            self.hotkeys,
+            self.current_window,
+            self.execute_hotkey_from_popup
+        )
+    
+    def execute_hotkey_from_popup(self, hk):
+        """从弹出框执行快捷键"""
+        action = hk.get('action', '')
+        if action:
+            try:
+                if action.startswith('http'):
+                    import webbrowser
+                    webbrowser.open(action)
+                elif action.startswith('cmd:'):
+                    subprocess.Popen(action[4:], shell=True)
+                elif action.startswith('copy:'):
+                    pyperclip.copy(action[5:])
+                else:
+                    subprocess.Popen(action, shell=True)
+                    
+                self.status_var.set(f"执行: {hk.get('description', '')}")
+            except Exception as e:
+                print(f"执行失败: {e}")
+
+
+# 替换 main 函数中使用 HotkeyManager 为 HotkeyManagerWithPopup
