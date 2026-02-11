@@ -1,0 +1,4 @@
+# Hotkey Manager Dependencies
+keyboard
+pyperclip
+requests
