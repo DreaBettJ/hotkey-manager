@@ -41,6 +41,36 @@ if not setup_display():
 
 
 import tkinter as tk
+# 桌面快捷方式
+def install_desktop_shortcut():
+    """创建桌面和应用菜单快捷方式"""
+    import os
+    
+    desktop_file = os.path.expanduser("~/.local/share/applications/hotkey-manager.desktop")
+    
+    # 检查是否已安装
+    if os.path.exists(desktop_file):
+        return
+    
+    content = """[Desktop Entry]
+Name=Hotkey Manager
+Comment=快捷键管理工具 - Alt+R 搜索
+Exec=bash -c "export DISPLAY=:10; /home/lijiang/workspace/hotkey-manager/start_with_sudo.sh"
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+Categories=Utility;
+StartupNotify=true
+"""
+    
+    try:
+        os.makedirs(os.path.dirname(desktop_file), exist_ok=True)
+        with open(desktop_file, 'w') as f:
+            f.write(content)
+        print(f"已安装应用菜单: {desktop_file}")
+    except Exception as e:
+        print(f"无法创建快捷方式: {e}")
+
 from tkinter import ttk, messagebox, simpledialog
 import json
 import os
