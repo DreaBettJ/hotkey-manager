@@ -361,9 +361,17 @@ class AddHotkeyDialog(tk.Toplevel):
         self.geometry("500x400")
         self.result = None
         
-        ttk.Label(self, text="窗口:").pack(anchor=tk.W, padx=10, pady=5)
+        # 当前窗口信息
+        ttk.Label(self, text=f"当前窗口: {current_window}", foreground="blue").pack(anchor=tk.W, padx=10, pady=2)
+        
+        ttk.Label(self, text="关联窗口:").pack(anchor=tk.W, padx=10, pady=5)
         self.window_var = tk.StringVar(value=current_window)
-        ttk.Entry(self, textvariable=self.window_var, width=50).pack(fill=tk.X, padx=10)
+        window_entry = ttk.Entry(self, textvariable=self.window_var, width=50)
+        window_entry.pack(fill=tk.X, padx=10)
+        
+        # 添加"使用当前窗口"按钮
+        ttk.Button(self, text="🎯 使用当前窗口", 
+                  command=lambda: self.window_var.set(current_window)).pack(anchor=tk.W, padx=10, pady=2)
         ttk.Label(self, text="(留空表示所有窗口)", foreground="gray").pack(anchor=tk.W, padx=10)
         
         ttk.Label(self, text="快捷键:").pack(anchor=tk.W, padx=10, pady=5)
